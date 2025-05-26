@@ -37,3 +37,49 @@ config/credentials.json
 claude_conversation_state.json
 .DS_Store
 .ipynb_checkpoints/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Configuration with secrets
+config/development.yaml
+config/testing.yaml
+config/production.yaml
+config/*.yaml
+config/*.json
+!config/example.*.yaml
+
+# Logs
+logs/
+*.log
+
+# Temporary and cache files
+temp/
+tmp/
+cache/
+.cache/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project specific
+conversation_states/
+sessions/
+artifacts/
+generated/
+outputs/
+
+# IDE - additional
+.idea/
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*.backup
+*~
