@@ -1,1 +1,1 @@
-# Claude Artifacts Automation Project
+# AI Interface Project
