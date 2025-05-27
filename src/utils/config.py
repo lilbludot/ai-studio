@@ -164,7 +164,7 @@ class ConfigManager:
                     "max_tokens": 1000,
                     "temperature": 0.7,
                     "timeout": 60,
-                    "enabled": False
+                    "enabled": True
                 },
                 "gemini": {
                     "api_key": "",
