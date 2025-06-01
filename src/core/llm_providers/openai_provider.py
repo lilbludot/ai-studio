@@ -146,6 +146,7 @@ class OpenAIProvider(BaseLLMProvider):
         Returns:
             LLMResponse object
         """
+
         if not self.validate_model(model):
             raise ValueError(f"Invalid model: {model}")
         
@@ -158,6 +159,7 @@ class OpenAIProvider(BaseLLMProvider):
         
         # Format messages for OpenAI API
         formatted_messages = self._format_messages_for_openai(messages)
+        
         
         try:
             # Build API parameters
@@ -175,7 +177,7 @@ class OpenAIProvider(BaseLLMProvider):
             
             # Send to OpenAI API
             response = self.client.chat.completions.create(**api_params)
-            
+    
             # Extract content
             choice = response.choices[0]
             content = choice.message.content or ""

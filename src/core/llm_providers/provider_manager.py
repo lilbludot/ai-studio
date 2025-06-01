@@ -220,6 +220,7 @@ class ProviderManager:
         Returns:
             LLMResponse
         """
+
         # Get provider
         prov = self.get_provider(provider)
         if not prov:
@@ -237,6 +238,7 @@ class ProviderManager:
                     model = models[0].name
                 else:
                     raise ValueError("No models available")
+        
         
         # Send message
         response = prov.send_message(messages, model, **kwargs)

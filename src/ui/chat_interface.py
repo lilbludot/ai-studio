@@ -122,15 +122,27 @@ class ChatInterface:
     def _setup_event_handlers(self):
         """Set up event handlers for UI components"""
         # Send message handlers
+        # self.send_btn.click(
+        #     fn=self.send_message,
+        #     inputs=[self.msg_input, self.chatbot],
+        #     outputs=[self.msg_input, self.chatbot, self.status_text]
+        # )
+        
+        # self.msg_input.submit(
+        #     fn=self.send_message,
+        #     inputs=[self.msg_input, self.chatbot],
+        #     outputs=[self.msg_input, self.chatbot, self.status_text]
+        # )
+        
         self.send_btn.click(
             fn=self.send_message,
-            inputs=[self.msg_input, self.chatbot],
+            inputs=[self.msg_input, self.chatbot, self.provider_dropdown, self.model_dropdown],
             outputs=[self.msg_input, self.chatbot, self.status_text]
-        )
-        
+        )                   
+
         self.msg_input.submit(
             fn=self.send_message,
-            inputs=[self.msg_input, self.chatbot],
+            inputs=[self.msg_input, self.chatbot, self.provider_dropdown, self.model_dropdown],
             outputs=[self.msg_input, self.chatbot, self.status_text]
         )
         
@@ -177,8 +189,10 @@ class ChatInterface:
         return conversation
     
     def send_message(self, 
-                    message: str, 
-                    history: List[Tuple[str, str]]) -> Tuple[str, List[Tuple[str, str]], str]:
+                message: str, 
+                history: List[Tuple[str, str]],
+                provider: str,
+                model: str) -> Tuple[str, List[Tuple[str, str]], str]:
         """
         Send a message and get LLM response
         
@@ -203,6 +217,7 @@ class ChatInterface:
                 )
             else:
                 session_id = current_session.session_id
+                
             
             # Save user message
             self.msg_store.save_message(
@@ -232,9 +247,24 @@ class ChatInterface:
                     LLMMessage(role=msg.role, content=msg.content)
                 )
             
-            # Get selected model
-            model = self.model_dropdown.value
-            provider = self.provider_dropdown.value
+            # Get selected model and provider
+            # # Handle case where UI components might not be initialized
+            # if self.model_dropdown and self.model_dropdown.value:
+            #     model = self.model_dropdown.value
+            # else:
+            #     # Use default model from current provider
+            #     current_provider = self.provider_mgr.get_current_provider()
+            #     if current_provider and hasattr(current_provider, 'default_model'):
+            #         model = current_provider.default_model
+            #     else:
+            #         # Fallback to first available model
+            #         models = current_provider.get_available_models() if current_provider else []
+            #         model = models[0].name if models else "claude-3-5-sonnet-20241022"
+            
+            # if self.provider_dropdown and self.provider_dropdown.value:
+            #     provider = self.provider_dropdown.value
+            # else:
+            #     provider = self.provider_mgr.current_provider_name
             
             # Send to LLM
             response = self.provider_mgr.send_message(

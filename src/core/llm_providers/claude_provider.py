@@ -153,11 +153,15 @@ class ClaudeProvider(BaseLLMProvider):
             # Send to Claude API
             response = self.client.messages.create(**api_kwargs)
             
+            
+            
             # Extract content
             content = ""
             for block in response.content:
                 if hasattr(block, 'text'):
                     content += block.text
+                    
+                    
             
             # Build response
             return LLMResponse(

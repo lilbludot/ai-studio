@@ -26,7 +26,7 @@ def create_app():
     config = ConfigManager()
     db_path = config.get('database.path', 'test_chat_app.db')
     db = DatabaseManager(db_path)
-    session_mgr = SessionManager(db, config)
+    session_mgr = SessionManager(config, db)  # CORRECT: db first, then config
     msg_store = MessageStore(db, session_mgr)
     provider_mgr = ProviderManager(config)
     
@@ -82,10 +82,11 @@ def main():
     
     # Launch the app
     app.launch(
-        server_name="127.0.0.1",
+        server_name="127.0.0.1",  # Use localhost instead of 0.0.0.0
         server_port=7860,
         share=False,
-        show_error=True
+        show_error=True,
+        show_api=False  # Skip API generation to avoid errors
     )
 
 if __name__ == "__main__":
