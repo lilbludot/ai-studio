@@ -39,6 +39,7 @@ class ChatInterface:
         self.msg_store = message_store
         self.session_mgr = session_manager
         self.provider_mgr = provider_manager
+        self.doc_editor = None
         
         # UI components (will be set in create_interface)
         self.chatbot = None
@@ -49,7 +50,12 @@ class ChatInterface:
         self.model_dropdown = None
         
         logger.info("ChatInterface initialized")
-    
+        
+    def set_document_editor(self, doc_editor):
+        """Set reference to document editor for integration"""
+        self.doc_editor = doc_editor
+        logger.info("Document editor connected to chat interface")
+        
     def create_interface(self) -> Dict[str, Any]:
         """
         Create the chat interface components
@@ -66,14 +72,18 @@ class ChatInterface:
                     value=self.provider_mgr.current_provider_name,
                     label="Provider",
                     scale=1,
-                    interactive=True
+                    interactive=True,
+                    max_choices=10,  # Limit dropdown height
+                    container=False  # Reduce padding
                 )
                 self.model_dropdown = gr.Dropdown(
                     choices=self._get_model_choices(),
                     value=self._get_default_model(),
                     label="Model",
                     scale=2,
-                    interactive=True
+                    interactive=True, 
+                    max_choices=10,  # Limit dropdown height
+                    container=False  # Reduce padding
                 )
             
             # Chat display
@@ -89,9 +99,13 @@ class ChatInterface:
                 self.msg_input = gr.Textbox(
                     label="Message",
                     placeholder="Type your message here...",
-                    lines=3,
+                    lines=2,
+                    max_lines=2,
                     scale=8,
-                    show_label=False
+                    show_label=False,
+                    elem_id="message_input",
+                    container=False,  # This reduces padding
+                    elem_classes=["small-input"]  # For CSS targeting
                 )
                 
                 with gr.Column(scale=1, min_width=80):
@@ -199,6 +213,8 @@ class ChatInterface:
         Args:
             message: User's message
             history: Current chat history
+            provider: Selected provider
+            model: Selected model
             
         Returns:
             Tuple of (cleared_input, updated_history, status)
@@ -217,7 +233,6 @@ class ChatInterface:
                 )
             else:
                 session_id = current_session.session_id
-                
             
             # Save user message
             self.msg_store.save_message(
@@ -235,36 +250,55 @@ class ChatInterface:
             # Prepare messages for LLM
             llm_messages = []
             
-            # Add system prompt if available
-            if context.system_prompt:
-                llm_messages.append(
-                    LLMMessage(role="system", content=context.system_prompt)
-                )
+            # Add system prompt with file operation instructions
+            system_prompt = """You are an AI assistant with access to a file system. You can:
+1. List files in directories
+2. Create new files
+3. Open and read files
+4. Edit file contents
+
+The user has a projects directory at ~/iCloud Drive/ClaudeProjects/
+
+When the user asks you to work with files, describe what you would do. For example:
+- "I'll create a new file called cover_letter.md in the JobSearch folder"
+- "I'll open the existing cover letter and add a paragraph"
+- "Let me list the files in your projects directory"
+
+Current directory contents will be provided when relevant."""
+            
+            if current_session and current_session.metadata.get("system_prompt"):
+                # Combine with any existing system prompt
+                system_prompt = current_session.metadata["system_prompt"] + "\n\n" + system_prompt
+            
+            llm_messages.append(
+                LLMMessage(role="system", content=system_prompt)
+            )
             
             # Add conversation history
             for msg in context.messages:
                 llm_messages.append(
                     LLMMessage(role=msg.role, content=msg.content)
                 )
+            print(f"DEBUG: Checking message: '{message}' for file keywords")  # ADD THIS
             
-            # Get selected model and provider
-            # # Handle case where UI components might not be initialized
-            # if self.model_dropdown and self.model_dropdown.value:
-            #     model = self.model_dropdown.value
-            # else:
-            #     # Use default model from current provider
-            #     current_provider = self.provider_mgr.get_current_provider()
-            #     if current_provider and hasattr(current_provider, 'default_model'):
-            #         model = current_provider.default_model
-            #     else:
-            #         # Fallback to first available model
-            #         models = current_provider.get_available_models() if current_provider else []
-            #         model = models[0].name if models else "claude-3-5-sonnet-20241022"
-            
-            # if self.provider_dropdown and self.provider_dropdown.value:
-            #     provider = self.provider_dropdown.value
-            # else:
-            #     provider = self.provider_mgr.current_provider_name
+            # Check if USER is asking about files and add file info to context
+            if self.doc_editor and any(keyword in message.lower() for keyword in ['file', 'create', 'open', 'list', 'directory', 'folder', 'document']):
+                print(f"DEBUG: File keyword detected! doc_editor exists: {self.doc_editor is not None}") 
+                # Add file listing info to help the LLM
+                files = self.doc_editor.list_files()
+                print(f"DEBUG: Found {len(files) if files else 0} files")
+                for f in files:
+                    print(f"DEBUG: File - Type: {f['type']}, Path: {f['path']}")  # ADD THIS
+                if files:
+                    file_info = "\n\nCurrent files in your projects directory:\n"
+                    for f in files[:20]:  # Show up to 20 files
+                        file_info += f"- {f['type']}: {f['path']}\n"
+                    
+                    # Add this as context for the LLM
+                    llm_messages.append(
+                        LLMMessage(role="system", content=f"File system info: {file_info}")
+                    )
+                    print(f"DEBUG: Added file info to context: {file_info[:200]}...")  # ADD THIS
             
             # Send to LLM
             response = self.provider_mgr.send_message(
