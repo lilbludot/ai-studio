@@ -121,6 +121,8 @@ class AIStudioApp:
                 with gr.Column(scale=3):
                     doc_components = self.doc_editor.create_interface()
             
+            self.chat_interface.connect_editor_to_chat()
+            
             # Connect components for interaction
             self._connect_components(chat_components, doc_components)
             

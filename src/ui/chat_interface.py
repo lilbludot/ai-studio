@@ -135,29 +135,17 @@ class ChatInterface:
     
     def _setup_event_handlers(self):
         """Set up event handlers for UI components"""
-        # Send message handlers
-        # self.send_btn.click(
-        #     fn=self.send_message,
-        #     inputs=[self.msg_input, self.chatbot],
-        #     outputs=[self.msg_input, self.chatbot, self.status_text]
-        # )
-        
-        # self.msg_input.submit(
-        #     fn=self.send_message,
-        #     inputs=[self.msg_input, self.chatbot],
-        #     outputs=[self.msg_input, self.chatbot, self.status_text]
-        # )
-        
+        # Send message handlers - WITHOUT editor references
         self.send_btn.click(
             fn=self.send_message,
             inputs=[self.msg_input, self.chatbot, self.provider_dropdown, self.model_dropdown],
-            outputs=[self.msg_input, self.chatbot, self.status_text]
-        )                   
-
+            outputs=[self.msg_input, self.chatbot, self.status_text, gr.Textbox(visible=False)]  # Hidden output for editor
+        )
+        
         self.msg_input.submit(
             fn=self.send_message,
             inputs=[self.msg_input, self.chatbot, self.provider_dropdown, self.model_dropdown],
-            outputs=[self.msg_input, self.chatbot, self.status_text]
+            outputs=[self.msg_input, self.chatbot, self.status_text, gr.Textbox(visible=False)]  # Hidden output for editor
         )
         
         # Clear chat
@@ -172,6 +160,44 @@ class ChatInterface:
             inputs=[self.provider_dropdown],
             outputs=[self.model_dropdown, self.status_text]
         )
+    
+    def connect_editor_to_chat(self):
+        """Connect document editor to chat after both are initialized"""
+        if self.doc_editor and hasattr(self.doc_editor, 'content_editor'):
+            # Update the event handlers to include editor content and handle updates
+            self.send_btn.click(
+                fn=self.send_message,
+                inputs=[
+                    self.msg_input, 
+                    self.chatbot, 
+                    self.provider_dropdown, 
+                    self.model_dropdown,
+                    self.doc_editor.content_editor
+                ],
+                outputs=[
+                    self.msg_input, 
+                    self.chatbot, 
+                    self.status_text,
+                    self.doc_editor.content_editor  # Now we can update the editor!
+                ]
+            )
+            
+            self.msg_input.submit(
+                fn=self.send_message,
+                inputs=[
+                    self.msg_input, 
+                    self.chatbot, 
+                    self.provider_dropdown, 
+                    self.model_dropdown,
+                    self.doc_editor.content_editor
+                ],
+                outputs=[
+                    self.msg_input, 
+                    self.chatbot, 
+                    self.status_text,
+                    self.doc_editor.content_editor  # Now we can update the editor!
+                ]
+            )
     
     def display_conversation(self, session_id: Optional[str] = None) -> List[Tuple[str, str]]:
         """
@@ -202,25 +228,37 @@ class ChatInterface:
         
         return conversation
     
-    def send_message(self, 
-                message: str, 
-                history: List[Tuple[str, str]],
-                provider: str,
-                model: str) -> Tuple[str, List[Tuple[str, str]], str]:
+    def send_message(self, *args) -> Tuple[str, List[Tuple[str, str]], str, str]:
         """
         Send a message and get LLM response
         
-        Args:
-            message: User's message
-            history: Current chat history
-            provider: Selected provider
-            model: Selected model
+        Args can be either:
+            - message, history, provider, model (4 args)
+            - message, history, provider, model, editor_content (5 args)
             
         Returns:
-            Tuple of (cleared_input, updated_history, status)
+            Tuple of (cleared_input, updated_history, status, editor_update)
         """
+        # Parse arguments
+        if len(args) == 4:
+            message, history, provider, model = args
+            editor_content = None
+        elif len(args) == 5:
+            message, history, provider, model, editor_content = args
+        else:
+            return "", [], f"❌ Error: Invalid number of arguments: {len(args)}", ""
+        
+        # Store the original editor content to preserve it
+        original_editor_content = editor_content if editor_content else ""
+        
+        # Variable to track editor updates
+        editor_update = original_editor_content  # Start with current content
+        
         if not message.strip():
-            return message, history, "Message cannot be empty"
+            return message, history, "Message cannot be empty", original_editor_content
+        
+        # Import file tools at the top of the method
+        from ..ui.file_tools import get_file_tools, execute_file_tool
         
         try:
             # Get current session
@@ -250,24 +288,20 @@ class ChatInterface:
             # Prepare messages for LLM
             llm_messages = []
             
-            # Add system prompt with file operation instructions
-            system_prompt = """You are an AI assistant with access to a file system. You can:
-1. List files in directories
-2. Create new files
-3. Open and read files
-4. Edit file contents
+            # Add system prompt
+            system_prompt = """You are an AI assistant with access to a file system and document editor. You can:
+- List files in directories using the list_files tool
+- Read file contents using the read_file tool
+- Create new files using the create_file tool
+- Update existing files using the update_file tool
+- Get the current editor content using the get_editor_content tool
+- Apply content directly to the editor using the apply_to_editor tool (with mode: "replace" or "append")
 
-The user has a projects directory at ~/iCloud Drive/ClaudeProjects/
+The user's projects are stored in ~/iCloud Drive/ClaudeProjects/
 
-When the user asks you to work with files, describe what you would do. For example:
-- "I'll create a new file called cover_letter.md in the JobSearch folder"
-- "I'll open the existing cover letter and add a paragraph"
-- "Let me list the files in your projects directory"
-
-Current directory contents will be provided when relevant."""
+When the user asks you to write, create, or modify content for them, use the apply_to_editor tool so they can see it immediately in their editor."""
             
             if current_session and current_session.metadata.get("system_prompt"):
-                # Combine with any existing system prompt
                 system_prompt = current_session.metadata["system_prompt"] + "\n\n" + system_prompt
             
             llm_messages.append(
@@ -279,66 +313,101 @@ Current directory contents will be provided when relevant."""
                 llm_messages.append(
                     LLMMessage(role=msg.role, content=msg.content)
                 )
-            print(f"DEBUG: Checking message: '{message}' for file keywords")  # ADD THIS
             
-            # Check if USER is asking about files and add file info to context
-            if self.doc_editor and any(keyword in message.lower() for keyword in ['file', 'create', 'open', 'list', 'directory', 'folder', 'document']):
-                print(f"DEBUG: File keyword detected! doc_editor exists: {self.doc_editor is not None}") 
-                # Add file listing info to help the LLM
-                files = self.doc_editor.list_files()
-                print(f"DEBUG: Found {len(files) if files else 0} files")
-                for f in files:
-                    print(f"DEBUG: File - Type: {f['type']}, Path: {f['path']}")  # ADD THIS
-                if files:
-                    file_info = "\n\nCurrent files in your projects directory:\n"
-                    for f in files[:20]:  # Show up to 20 files
-                        file_info += f"- {f['type']}: {f['path']}\n"
-                    
-                    # Add this as context for the LLM
-                    llm_messages.append(
-                        LLMMessage(role="system", content=f"File system info: {file_info}")
-                    )
-                    print(f"DEBUG: Added file info to context: {file_info[:200]}...")  # ADD THIS
+            # Get file tools if doc_editor is available
+            tools = None
+            if self.doc_editor:
+                tools = get_file_tools()
             
-            # Send to LLM
+            # Send to LLM with tools
             response = self.provider_mgr.send_message(
                 messages=llm_messages,
                 model=model,
                 provider=provider,
                 temperature=0.7,
-                max_tokens=1000
+                max_tokens=1000,
+                tools=tools
             )
+            
+            # Check if LLM wants to use a tool
+            if response.function_call and self.doc_editor:
+                tool_name = response.function_call['name']
+                tool_input = response.function_call['input']
+                
+                # Execute the tool - NOW PASSING editor_content
+                tool_result = execute_file_tool(tool_name, tool_input, self.doc_editor, editor_content)
+                
+                # Check if this is an editor update
+                if tool_result.get('editor_action') == 'update':
+                    editor_update = tool_result.get('editor_content', original_editor_content)
+                # If not an editor action, preserve original content
+                else:
+                    editor_update = original_editor_content
+                
+                # Build a nice response about what happened
+                if 'result' in tool_result:
+                    tool_status = f"Used {tool_name} successfully"
+                else:
+                    tool_status = f"Error with {tool_name}: {tool_result['error']}"
+                
+                # Add tool use to messages for context
+                assistant_content = response.content if response.content else f"Let me {tool_name.replace('_', ' ')} for you."
+                llm_messages.append(LLMMessage(role="assistant", content=assistant_content))
+                llm_messages.append(LLMMessage(
+                    role="user", 
+                    content=f"Tool result:\n{tool_result.get('result', tool_result.get('error'))}"
+                ))
+                
+                # Get final response from LLM
+                final_response = self.provider_mgr.send_message(
+                    messages=llm_messages,
+                    model=model,
+                    provider=provider,
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                
+                # Use final response
+                response_content = final_response.content
+                response_tokens = final_response.total_tokens
+                
+            else:
+                # No tool use, just regular response
+                response_content = response.content
+                response_tokens = response.total_tokens
+                # Preserve editor content
+                editor_update = original_editor_content
             
             # Save assistant response
             self.msg_store.save_message(
                 role=MessageRole.ASSISTANT,
-                content=response.content,
+                content=response_content,
                 session_id=session_id,
                 metadata={
-                    "model": response.model,
-                    "tokens": response.total_tokens,
+                    "model": model,
+                    "tokens": response_tokens,
                     "provider": provider
                 }
             )
             
             # Update history with response
-            history[-1] = (message, response.content)
+            history[-1] = (message, response_content)
             
             # Calculate cost
             cost = self.provider_mgr.calculate_cost(
-                model=response.model,
+                model=model,
                 input_tokens=response.usage['prompt_tokens'],
                 output_tokens=response.usage['completion_tokens'],
                 provider=provider
             )
             
-            status = f"✓ {provider}/{model} - Tokens: {response.total_tokens} - Cost: ${cost:.4f}"
+            status = f"✓ {provider}/{model} - Tokens: {response_tokens} - Cost: ${cost:.4f}"
             
-            return "", history, status
+            return "", history, status, editor_update
             
         except Exception as e:
             logger.error(f"Error sending message: {e}")
-            return "", history, f"❌ Error: {str(e)}"
+            return "", history, f"❌ Error: {str(e)}", original_editor_content
     
     def clear_conversation(self) -> Tuple[List, str]:
         """

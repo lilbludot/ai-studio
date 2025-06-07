@@ -178,6 +178,13 @@ class DocumentEditor:
             outputs=[self.save_status]
         )
         
+        # Save As button
+        self.save_as_btn.click(
+            fn=self.handle_save_as,
+            inputs=[self.content_editor, self.title_input],
+            outputs=[self.save_status, self.file_path_display, self.file_browser]
+        )
+        
         # Refresh file list
         self.refresh_btn.click(
             fn=self.refresh_file_list,
@@ -290,6 +297,70 @@ class DocumentEditor:
         except Exception as e:
             logger.error(f"Error saving file: {e}")
             return f"Error: {str(e)}"
+    def save_as_file(self, content: str, title: str, filename: str) -> str:
+        """
+        Save content as a new file
+        
+        Args:
+            content: Content to save
+            title: Title for database
+            filename: Filename/path to save as
+            
+        Returns:
+            Status message
+        """
+        try:
+            # If no extension, add .md
+            if not any(filename.endswith(ext) for ext in ['.md', '.txt', '.doc']):
+                filename += '.md'
+            
+            # Create full path
+            full_path = self.projects_path / filename
+            
+            # Create parent directories if needed
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Write file
+            full_path.write_text(content, encoding='utf-8')
+            
+            # Update current file reference
+            self.current_file_path = full_path
+            self.last_saved_content = content
+            
+            # Save to database
+            self._save_to_database(title or full_path.stem, content, {"file_path": str(full_path)})
+            
+            return f"Saved as: {filename}"
+        
+        except Exception as e:
+            logger.error(f"Error in save_as: {e}")
+            return f"Error: {str(e)}"
+    
+    
+    def handle_save_as(self, content: str, title: str) -> Tuple[str, str, gr.Dropdown]:
+        """
+        Handle Save As button click - prompts for filename
+        
+        For now, we'll use the title as the filename
+        In a full implementation, we'd have a popup dialog
+        """
+        if not title:
+            return "Please enter a title/filename first", self.file_path_display.value, gr.Dropdown()
+        
+        # Use title as filename, sanitize it
+        filename = title.replace(' ', '_').replace('/', '_')
+        if not filename.endswith('.md'):
+            filename += '.md'
+        
+        # Save the file
+        status = self.save_as_file(content, title, filename)
+        
+        if "Saved as:" in status:
+            # Update file browser
+            new_choices = self._get_file_choices()
+            return status, str(self.current_file_path), gr.Dropdown(choices=new_choices)
+        else:
+            return status, self.file_path_display.value, gr.Dropdown()
     
     def auto_save(self, content: str, title: str) -> str:
         """Auto-save if there's a current file"""

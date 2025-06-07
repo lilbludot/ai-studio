@@ -30,7 +30,7 @@ class ClaudeProvider(BaseLLMProvider):
             max_tokens=200000,  # 200k context window
             max_output_tokens=4096,
             supports_streaming=True,
-            supports_functions=False,  # Claude doesn't have native function calling yet
+            supports_functions=True,  # CHANGED FROM False
             supports_vision=True,
             supports_json_mode=False,
             cost_per_1k_input=0.015,   # $15 per million tokens
@@ -42,7 +42,7 @@ class ClaudeProvider(BaseLLMProvider):
             max_tokens=200000,
             max_output_tokens=4096,
             supports_streaming=True,
-            supports_functions=False,
+            supports_functions=True,  # CHANGED FROM False
             supports_vision=True,
             supports_json_mode=False,
             cost_per_1k_input=0.003,   # $3 per million tokens
@@ -54,7 +54,7 @@ class ClaudeProvider(BaseLLMProvider):
             max_tokens=200000,
             max_output_tokens=4096,
             supports_streaming=True,
-            supports_functions=False,
+            supports_functions=True,  # CHANGED FROM False
             supports_vision=True,
             supports_json_mode=False,
             cost_per_1k_input=0.00025,  # $0.25 per million tokens
@@ -102,6 +102,7 @@ class ClaudeProvider(BaseLLMProvider):
                     model: str,
                     max_tokens: Optional[int] = None,
                     temperature: float = 0.7,
+                    tools: Optional[List[Dict[str, Any]]] = None,  # ADDED
                     **kwargs) -> LLMResponse:
         """
         Send messages to Claude and get response
@@ -111,6 +112,7 @@ class ClaudeProvider(BaseLLMProvider):
             model: Model identifier
             max_tokens: Maximum tokens in response
             temperature: Temperature for randomness (0-1)
+            tools: List of tool definitions  # ADDED
             **kwargs: Additional parameters
             
         Returns:
@@ -150,18 +152,27 @@ class ClaudeProvider(BaseLLMProvider):
             if system_message:
                 api_kwargs["system"] = system_message
             
+            # ADDED: Tool support
+            if tools:
+                api_kwargs["tools"] = self.format_tools_for_claude(tools)
+            
             # Send to Claude API
             response = self.client.messages.create(**api_kwargs)
             
-            
-            
-            # Extract content
+            # Extract content - MODIFIED to handle tool calls
             content = ""
+            tool_calls = []
+            
             for block in response.content:
                 if hasattr(block, 'text'):
                     content += block.text
-                    
-                    
+                elif hasattr(block, 'type') and block.type == 'tool_use':
+                    # Handle tool use blocks
+                    tool_calls.append({
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input
+                    })
             
             # Build response
             return LLMResponse(
@@ -173,7 +184,8 @@ class ClaudeProvider(BaseLLMProvider):
                     "completion_tokens": response.usage.output_tokens,
                     "total_tokens": response.usage.input_tokens + response.usage.output_tokens
                 },
-                raw_response=response
+                raw_response=response,
+                function_call=tool_calls[0] if tool_calls else None  # ADDED
             )
             
         except Exception as e:
@@ -337,3 +349,26 @@ class ClaudeProvider(BaseLLMProvider):
             prompt += AI_PROMPT
         
         return prompt
+    
+    def format_tools_for_claude(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Format tool definitions for Claude's expected format
+        
+        Args:
+            tools: List of tool definitions
+            
+        Returns:
+            Formatted tools for Claude API
+        """
+        formatted_tools = []
+        
+        for tool in tools:
+            # Claude expects this format based on the documentation
+            formatted_tool = {
+                "name": tool["name"],
+                "description": tool["description"],
+                "input_schema": tool.get("input_schema", tool.get("parameters", {}))
+            }
+            formatted_tools.append(formatted_tool)
+        
+        return formatted_tools
