@@ -6,6 +6,33 @@ Created: 2025-06-05
 
 from typing import Dict, Any, List
 
+def format_tool_result(tool_name: str, content: str, is_error: bool = False) -> str:
+    """Format tool results with a clear visual frame"""
+    status = "❌ ERROR" if is_error else "✅ SUCCESS"
+    border = "═" * 60
+    
+    lines = [
+        f"╔{border}╗",
+        f"║ TOOL: {tool_name:<53} ║",
+        f"║ STATUS: {status:<52} ║",
+        f"╠{border}╣",
+        "║" + " " * 60 + "║"
+    ]
+    
+    # Split content into lines and add to frame
+    content_lines = content.split('\n')
+    for line in content_lines:
+        # Handle long lines by wrapping
+        while len(line) > 58:
+            lines.append(f"║ {line[:58]} ║")
+            line = line[58:]
+        lines.append(f"║ {line:<58} ║")
+    
+    lines.append("║" + " " * 60 + "║")
+    lines.append(f"╚{border}╝")
+    
+    return '\n'.join(lines)
+
 def get_file_tools() -> List[Dict[str, Any]]:
     """
     Get the tool definitions for file operations.
@@ -112,17 +139,7 @@ def get_file_tools() -> List[Dict[str, Any]]:
 
 def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, editor_content: str = None) -> Dict[str, Any]:
     """
-    Execute a file tool and return the result.
-    This is the "translator" between Claude's request and our DocumentEditor.
-    
-    Args:
-        tool_name: Name of the tool to execute
-        tool_input: Parameters from Claude
-        doc_editor: DocumentEditor instance
-        editor_content: Current editor content (for editor tools)
-        
-    Returns:
-        Dict with either 'result' (success) or 'error' (failure)
+    Execute a file tool and return the result with formatted frame.
     """
     try:
         if tool_name == "list_files":
@@ -133,7 +150,7 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             files = doc_editor.list_files(directory)
             
             if not files:
-                return {"result": "No files found."}
+                return {"result": format_tool_result("list_files", "No files found.")}
             
             # Format output nicely
             output = f"Found {len(files)} items:\n\n"
@@ -143,7 +160,7 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
                 else:
                     output += f"📄 {f['path']}\n"
             
-            return {"result": output}
+            return {"result": format_tool_result("list_files", output)}
         
         elif tool_name == "read_file":
             file_path = tool_input["file_path"]
@@ -152,9 +169,14 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             content = doc_editor.open_file(file_path)
             
             if content is None:
-                return {"error": f"File not found: {file_path}"}
+                return {"error": format_tool_result("read_file", f"File not found: {file_path}", is_error=True)}
             
-            return {"result": content}
+            # Return content WITH editor update signal
+            return {
+                "result": format_tool_result("read_file", content),
+                "editor_action": "update",  # Signal to update the editor
+                "editor_content": content   # Show in editor
+            }
         
         elif tool_name == "create_file":
             file_path = tool_input["file_path"]
@@ -164,10 +186,15 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             success = doc_editor.create_file(file_path, content)
             
             if success:
-                return {"result": f"Successfully created file: {file_path}"}
+                # Return success WITH editor update signal
+                return {
+                    "result": format_tool_result("create_file", f"Successfully created file: {file_path}"),
+                    "editor_action": "update",  # Signal to update the editor
+                    "editor_content": content   # Content to show in editor
+                }
             else:
-                return {"error": f"Failed to create file: {file_path}"}
-        
+                return {"error": format_tool_result("create_file", f"Failed to create file: {file_path}", is_error=True)}
+           
         elif tool_name == "update_file":
             file_path = tool_input["file_path"]
             content = tool_input["content"]
@@ -175,23 +202,28 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             # First open the file to set it as current
             existing = doc_editor.open_file(file_path)
             if existing is None:
-                return {"error": f"File not found: {file_path}"}
+                return {"error": format_tool_result("update_file", f"File not found: {file_path}", is_error=True)}
             
             # Then save the new content
             success = doc_editor.save_current_file(content)
             
             if success:
-                return {"result": f"Successfully updated file: {file_path}"}
+                # Return success WITH editor update signal
+                return {
+                    "result": format_tool_result("update_file", f"Successfully updated file: {file_path}"),
+                    "editor_action": "update",  # Signal to update the editor
+                    "editor_content": content   # Content to show in editor
+                }
             else:
-                return {"error": f"Failed to update file: {file_path}"}
+                return {"error": format_tool_result("update_file", f"Failed to update file: {file_path}", is_error=True)}
         
         elif tool_name == "get_editor_content":
             if editor_content is not None:
                 if not editor_content.strip():
-                    return {"result": "The editor is currently empty."}
-                return {"result": editor_content}
+                    return {"result": format_tool_result("get_editor_content", "The editor is currently empty.")}
+                return {"result": format_tool_result("get_editor_content", editor_content)}
             else:
-                return {"error": "Unable to access editor content."}
+                return {"error": format_tool_result("get_editor_content", "Unable to access editor content.", is_error=True)}
         
         elif tool_name == "apply_to_editor":
             # This tool signals that we want to update the editor
@@ -203,14 +235,15 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             else:
                 final_content = new_content
             
+            # Special case: apply_to_editor needs both framed result AND editor update signal
             return {
-                "result": "Content has been applied to the editor.",
+                "result": format_tool_result("apply_to_editor", "Content has been applied to the editor."),
                 "editor_action": "update",  # Signal for UI
                 "editor_content": final_content  # Content to apply
             }
         
         else:
-            return {"error": f"Unknown tool: {tool_name}"}
+            return {"error": format_tool_result(tool_name, f"Unknown tool: {tool_name}", is_error=True)}
             
     except Exception as e:
-        return {"error": f"Error executing {tool_name}: {str(e)}"}
+        return {"error": format_tool_result(tool_name, f"Error executing tool: {str(e)}", is_error=True)}

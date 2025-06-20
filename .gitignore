@@ -83,3 +83,4 @@ outputs/
 *.bak
 *.backup
 *~
+debug_logs/

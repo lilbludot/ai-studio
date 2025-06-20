@@ -156,6 +156,25 @@ class ClaudeProvider(BaseLLMProvider):
             if tools:
                 api_kwargs["tools"] = self.format_tools_for_claude(tools)
             
+            # Debug: Save input to file
+            import json
+            from datetime import datetime
+            from pathlib import Path
+
+            # Create debug directory if it doesn't exist
+            debug_dir = Path("debug_logs")
+            debug_dir.mkdir(exist_ok=True)
+
+            # Create filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = debug_dir / f"claude_input_{timestamp}.json"
+
+            # Save to file
+            with open(debug_file, 'w') as f:
+                json.dump(api_kwargs, f, indent=2)
+
+            print(f"\n📝 Claude input saved to: {debug_file}")
+                        
             # Send to Claude API
             response = self.client.messages.create(**api_kwargs)
             

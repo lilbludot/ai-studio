@@ -135,18 +135,8 @@ class ChatInterface:
     
     def _setup_event_handlers(self):
         """Set up event handlers for UI components"""
-        # Send message handlers - WITHOUT editor references
-        self.send_btn.click(
-            fn=self.send_message,
-            inputs=[self.msg_input, self.chatbot, self.provider_dropdown, self.model_dropdown],
-            outputs=[self.msg_input, self.chatbot, self.status_text, gr.Textbox(visible=False)]  # Hidden output for editor
-        )
-        
-        self.msg_input.submit(
-            fn=self.send_message,
-            inputs=[self.msg_input, self.chatbot, self.provider_dropdown, self.model_dropdown],
-            outputs=[self.msg_input, self.chatbot, self.status_text, gr.Textbox(visible=False)]  # Hidden output for editor
-        )
+        # NOTE: Send button and message input handlers are set up in connect_editor_to_chat()
+        # to avoid duplication issues. DO NOT set them here!
         
         # Clear chat
         self.clear_btn.click(
@@ -164,7 +154,11 @@ class ChatInterface:
     def connect_editor_to_chat(self):
         """Connect document editor to chat after both are initialized"""
         if self.doc_editor and hasattr(self.doc_editor, 'content_editor'):
-            # Update the event handlers to include editor content and handle updates
+            # IMPORTANT: Clear existing handlers first to prevent duplicates
+            self.send_btn.click(fn=None)
+            self.msg_input.submit(fn=None)
+            
+            # Now set up the handlers with editor integration
             self.send_btn.click(
                 fn=self.send_message,
                 inputs=[
@@ -178,8 +172,9 @@ class ChatInterface:
                     self.msg_input, 
                     self.chatbot, 
                     self.status_text,
-                    self.doc_editor.content_editor  # Now we can update the editor!
-                ]
+                    self.doc_editor.content_editor
+                ],
+                queue=False  # ADD THIS - prevents clearing outputs while processing
             )
             
             self.msg_input.submit(
@@ -195,10 +190,11 @@ class ChatInterface:
                     self.msg_input, 
                     self.chatbot, 
                     self.status_text,
-                    self.doc_editor.content_editor  # Now we can update the editor!
-                ]
+                    self.doc_editor.content_editor
+                ],
+                queue=False  # ADD THIS - prevents clearing outputs while processing
             )
-    
+        
     def display_conversation(self, session_id: Optional[str] = None) -> List[Tuple[str, str]]:
         """
         Display conversation for a session
@@ -239,6 +235,9 @@ class ChatInterface:
         Returns:
             Tuple of (cleared_input, updated_history, status, editor_update)
         """
+        
+   
+        
         # Parse arguments
         if len(args) == 4:
             message, history, provider, model = args
@@ -248,8 +247,12 @@ class ChatInterface:
         else:
             return "", [], f"❌ Error: Invalid number of arguments: {len(args)}", ""
         
-        # Store the original editor content to preserve it
-        original_editor_content = editor_content if editor_content else ""
+  
+        
+        # # Store the original editor content to preserve it
+        # original_editor_content = editor_content if editor_content else ""
+        
+        original_editor_content = editor_content if editor_content is not None else ""
         
         # Variable to track editor updates
         editor_update = original_editor_content  # Start with current content
@@ -289,18 +292,85 @@ class ChatInterface:
             llm_messages = []
             
             # Add system prompt
-            system_prompt = """You are an AI assistant with access to a file system and document editor. You can:
-- List files in directories using the list_files tool
-- Read file contents using the read_file tool
-- Create new files using the create_file tool
-- Update existing files using the update_file tool
-- Get the current editor content using the get_editor_content tool
-- Apply content directly to the editor using the apply_to_editor tool (with mode: "replace" or "append")
+            system_prompt = """You are an AI assistant with access to a file system and document editor.
+
+IMPORTANT: When the user asks you to perform an action (read, create, update files), you MUST use the appropriate tool immediately. Do not just describe what you will do - actually do it by calling the tool.
+
+Available tools:
+- list_files: List files in directories
+- read_file: Read file contents (also displays in editor)
+- create_file: Create new files
+- update_file: Update existing files (replaces entire content)
+- get_editor_content: Get current editor content
+- apply_to_editor: Apply content to the editor
 
 The user's projects are stored in ~/iCloud Drive/ClaudeProjects/
 
-When the user asks you to write, create, or modify content for them, use the apply_to_editor tool so they can see it immediately in their editor."""
-            
+CRITICAL RULES:
+1. When asked to read a file, USE the read_file tool immediately
+2. When asked to create/update a file, USE the appropriate tool immediately
+3. When asked to show file contents, USE the read_file tool first, then share what you found
+4. Do NOT say "I will do X" - instead, DO X using the tools
+5. After using a tool, wait for the tool result before proceeding
+6. When a user mentions working with a specific file, IMMEDIATELY read it using read_file - don't wait for an explicit read request
+
+TRIGGER PHRASES requiring immediate action:
+- "let's work on [file]" → read_file
+- "open [file]" → read_file
+- "check [file]" → read_file
+- "show me [file]" → read_file
+- "what's in [file]" → read_file
+- "create [file]" → create_file
+- "make a new [file]" → create_file
+- "update [file]" → update_file
+- "edit [file]" → update_file
+- "list files" or "what files" → list_files
+
+INTENT RECOGNITION:
+- ANY mention of a specific file by name → read_file immediately
+- ANY request involving working with, looking at, editing, helping with, or collaborating on a file → read_file immediately  
+- Don't wait to understand exactly what the user wants to do - if they mention a file, open it first
+- Examples of file mentions that should trigger immediate read_file:
+  * "june19.md" (just the filename)
+  * "the cover letter" 
+  * "that poem we were working on"
+  * "help me with my resume"
+  * "can we improve the jokes file"
+  * "I'm thinking about the draft"
+  
+Remember: When in doubt, if a file is mentioned or implied, read it first. You can always ask clarifying questions AFTER the file is open in the editor.
+
+IMPORTANT TOOL USAGE NOTE:
+- Do NOT use JSON format like {"thought": "...", "command": "..."}
+- Do NOT write out tool calls in code blocks
+- Do NOT describe tool usage in any special format
+- Simply use the tools directly through the provided tool interface
+- The correct way to use tools is through the system's built-in tool calling mechanism, not through any text format
+
+When you need to use a tool, just use it directly - don't write about using it or format it in any special way.
+
+When you see a framed tool result (with ╔══╗ borders), this is the ACTUAL result of your tool use. Trust this as the authoritative state of the file system.
+NEVER DO THIS:
+- Never write "Tool: [toolname]" in your response
+- Never write "Path: [filepath]" in your response  
+- Never write "Content: [content]" in your response
+- Never describe what tool you're going to use
+- Never show tool syntax in your messages
+
+INSTEAD:
+- Just use the tool silently through the system
+- After the tool executes, you'll see the result in a framed box
+- Then you can talk about what happened
+
+Example of WRONG behavior:
+User: "Add a line to the file"
+You: "Tool: update_file..." ❌ NO! Don't write this!
+
+Example of CORRECT behavior:
+User: "Add a line to the file"
+You: [use tool silently, wait for result] "I've added the line to the file!"
+"""
+
             if current_session and current_session.metadata.get("system_prompt"):
                 system_prompt = current_session.metadata["system_prompt"] + "\n\n" + system_prompt
             
@@ -403,7 +473,8 @@ When the user asks you to write, create, or modify content for them, use the app
             
             status = f"✓ {provider}/{model} - Tokens: {response_tokens} - Cost: ${cost:.4f}"
             
-            return "", history, status, editor_update
+            
+            return "", history, status, editor_update if editor_update is not None else original_editor_content
             
         except Exception as e:
             logger.error(f"Error sending message: {e}")
