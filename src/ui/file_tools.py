@@ -1,7 +1,7 @@
 """
 File operation tools for Claude
 Defines the tools that Claude can use to interact with the file system
-Created: 2025-06-05
+Created: 2025-06-20
 """
 
 from typing import Dict, Any, List
@@ -58,7 +58,21 @@ def get_file_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "read_file",
-            "description": "Read the contents of a file. Returns the full text content of the file.",
+            "description": "Read a file privately without displaying it in the editor. Use this for analyzing code, gathering information, or when you need to read multiple files. The content is returned to you but the editor remains unchanged.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file relative to projects directory (e.g., 'JobSearch/Google/cover_letter.md')"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        },
+        {
+            "name": "open_and_display_file",
+            "description": "Open a file and display it in the editor for the user to see and potentially edit. Use this when the user asks to work on a file, edit it, or explicitly wants to see it.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -89,18 +103,18 @@ def get_file_tools() -> List[Dict[str, Any]]:
             }
         },
         {
-            "name": "update_file",
-            "description": "Update an existing file with new content. Replaces the entire file content.",
+            "name": "save_file",
+            "description": "Save content to a file, replacing its entire contents. Use this to persist changes from the editor to the file system.",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "file_path": {
                         "type": "string",
-                        "description": "Path to the file to update"
+                        "description": "Path to the file to save"
                     },
                     "content": {
                         "type": "string",
-                        "description": "New content for the file (replaces existing content)"
+                        "description": "Complete content to save to the file (replaces existing content)"
                     }
                 },
                 "required": ["file_path", "content"]
@@ -116,8 +130,8 @@ def get_file_tools() -> List[Dict[str, Any]]:
             }
         },
         {
-            "name": "apply_to_editor",
-            "description": "Apply new content directly to the document editor. This will replace the current editor content and the user will see the changes immediately. Use this when the user asks you to write, create, or modify content for them.",
+            "name": "edit_text_in_editor",
+            "description": "Edit the text currently displayed in the document editor. This is how you apply your proposed changes after discussing them with the user.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -163,17 +177,34 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             return {"result": format_tool_result("list_files", output)}
         
         elif tool_name == "read_file":
+            # NEW: Silent read without editor update
+            file_path = tool_input["file_path"]
+            
+            # Call DocumentEditor's open_file (but don't update editor)
+            content = doc_editor.open_file(file_path)
+            
+            if content is None:
+                return {"error": format_tool_result("read_file", f"File not found: {file_path}", is_error=True)}
+            
+            # Return content WITHOUT editor update signal
+            return {
+                "result": format_tool_result("read_file", content)
+                # No editor_action or editor_content - keeps editor unchanged
+            }
+        
+        elif tool_name == "open_and_display_file":
+            # RENAMED: This is the old read_file behavior
             file_path = tool_input["file_path"]
             
             # Call DocumentEditor's open_file
             content = doc_editor.open_file(file_path)
             
             if content is None:
-                return {"error": format_tool_result("read_file", f"File not found: {file_path}", is_error=True)}
+                return {"error": format_tool_result("open_and_display_file", f"File not found: {file_path}", is_error=True)}
             
             # Return content WITH editor update signal
             return {
-                "result": format_tool_result("read_file", content),
+                "result": format_tool_result("open_and_display_file", content),
                 "editor_action": "update",  # Signal to update the editor
                 "editor_content": content   # Show in editor
             }
@@ -195,14 +226,14 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             else:
                 return {"error": format_tool_result("create_file", f"Failed to create file: {file_path}", is_error=True)}
            
-        elif tool_name == "update_file":
+        elif tool_name == "save_file":
             file_path = tool_input["file_path"]
             content = tool_input["content"]
             
             # First open the file to set it as current
             existing = doc_editor.open_file(file_path)
             if existing is None:
-                return {"error": format_tool_result("update_file", f"File not found: {file_path}", is_error=True)}
+                return {"error": format_tool_result("save_file", f"File not found: {file_path}", is_error=True)}
             
             # Then save the new content
             success = doc_editor.save_current_file(content)
@@ -210,12 +241,12 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             if success:
                 # Return success WITH editor update signal
                 return {
-                    "result": format_tool_result("update_file", f"Successfully updated file: {file_path}"),
+                    "result": format_tool_result("save_file", f"Successfully saved file: {file_path}"),
                     "editor_action": "update",  # Signal to update the editor
                     "editor_content": content   # Content to show in editor
                 }
             else:
-                return {"error": format_tool_result("update_file", f"Failed to update file: {file_path}", is_error=True)}
+                return {"error": format_tool_result("save_file", f"Failed to save file: {file_path}", is_error=True)}
         
         elif tool_name == "get_editor_content":
             if editor_content is not None:
@@ -225,7 +256,7 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             else:
                 return {"error": format_tool_result("get_editor_content", "Unable to access editor content.", is_error=True)}
         
-        elif tool_name == "apply_to_editor":
+        elif tool_name == "edit_text_in_editor":
             # This tool signals that we want to update the editor
             new_content = tool_input["content"]
             mode = tool_input["mode"]
@@ -235,9 +266,9 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             else:
                 final_content = new_content
             
-            # Special case: apply_to_editor needs both framed result AND editor update signal
+            # Special case: edit_text_in_editor needs both framed result AND editor update signal
             return {
-                "result": format_tool_result("apply_to_editor", "Content has been applied to the editor."),
+                "result": format_tool_result("edit_text_in_editor", "Content has been applied to the editor."),
                 "editor_action": "update",  # Signal for UI
                 "editor_content": final_content  # Content to apply
             }
