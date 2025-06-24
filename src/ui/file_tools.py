@@ -120,6 +120,64 @@ def get_file_tools() -> List[Dict[str, Any]]:
                 "required": ["file_path", "content"]
             }
         },
+        
+        {
+            "name": "save_editor_to_file",
+            "description": "Save the current editor content to the currently open file. This is the safest way to save changes - it takes whatever is in the editor and saves it to the file that's currently open. Use this instead of save_file when you want to preserve all content.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "required": []  # No parameters needed - it uses current editor content and current file
+            }
+        },
+        {
+            "name": "list_file_versions",
+            "description": "List all saved versions of a file. Shows version history with timestamps and tags.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file relative to projects directory (e.g., 'JobSearch/Google/cover_letter.md')"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        },
+        {
+            "name": "tag_current_version",
+            "description": "Create a special tagged version of the currently open file that will be kept forever. Use this to mark important milestones.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tag": {
+                        "type": "string",
+                        "description": "Tag name (e.g., 'sent to company', 'final draft', 'before major edit'). Keep it short and descriptive."
+                    }
+                },
+                "required": ["tag"]
+            }
+        },
+        {
+            "name": "restore_file_version",
+            "description": "Restore a previous version of a file. The current version will be backed up with tag 'before_restore' before restoring.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the original file"
+                    },
+                    "version_filename": {
+                        "type": "string",
+                        "description": "The version filename to restore (e.g., 'cover_letter_20250623_143022.md')"
+                    }
+                },
+                "required": ["file_path", "version_filename"]
+            }
+        },
+
+        
         {
             "name": "get_editor_content",
             "description": "Get the current content displayed in the document editor. Use this when the user refers to 'the editor', 'the document', or asks to see what they're working on.",
@@ -247,6 +305,95 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
                 }
             else:
                 return {"error": format_tool_result("save_file", f"Failed to save file: {file_path}", is_error=True)}
+        
+        elif tool_name == "save_editor_to_file":
+            # Get the current editor content from the passed parameter
+            if editor_content is None:
+                return {"error": format_tool_result("save_editor_to_file", "No editor content available", is_error=True)}
+            
+            # Check if there's a current file open
+            if not doc_editor.current_file_path:
+                return {"error": format_tool_result("save_editor_to_file", "No file currently open. Use save_file to create a new file.", is_error=True)}
+            
+            # Save the editor content to the current file
+            success = doc_editor.save_current_file(editor_content)
+            
+            if success:
+                file_name = doc_editor.current_file_path.name
+                return {
+                    "result": format_tool_result("save_editor_to_file", f"Successfully saved editor content to: {file_name}")
+                }
+            else:
+                return {"error": format_tool_result("save_editor_to_file", "Failed to save file", is_error=True)}
+        
+        elif tool_name == "list_file_versions":
+            file_path = tool_input["file_path"]
+            
+            # Get versions from DocumentEditor
+            versions = doc_editor.get_file_versions(file_path)
+            
+            if not versions:
+                return {"result": format_tool_result("list_file_versions", f"No versions found for: {file_path}")}
+            
+            # Format output
+            output = f"Found {len(versions)} versions of {file_path}:\n\n"
+            for i, v in enumerate(versions):
+                # Parse timestamp for readable format
+                ts = v['timestamp']
+                if len(ts) >= 15:  # Full timestamp
+                    readable_time = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}:{ts[13:15]}"
+                else:
+                    readable_time = ts
+                
+                size_kb = v['size'] / 1024
+                
+                # Format with tag if present
+                if v.get('tag'):
+                    output += f"📍 {v['filename']} (Tagged: {v['tag']})\n"
+                else:
+                    output += f"📄 {v['filename']}\n"
+                
+                output += f"   Created: {readable_time}\n"
+                output += f"   Size: {size_kb:.1f} KB\n"
+                
+                # Add note for special versions
+                if i == len(versions) - 1:
+                    output += f"   (Original version)\n"
+                
+                output += "\n"
+            
+            return {"result": format_tool_result("list_file_versions", output)}
+        
+        elif tool_name == "tag_current_version":
+            tag = tool_input["tag"]
+            
+            # Tag the current version
+            success = doc_editor.tag_current_version(tag)
+            
+            if success:
+                return {
+                    "result": format_tool_result("tag_current_version", f"Successfully tagged current version as: {tag}")
+                }
+            else:
+                return {"error": format_tool_result("tag_current_version", "Failed to tag version. Make sure a file is open.", is_error=True)}
+        
+        elif tool_name == "restore_file_version":
+            file_path = tool_input["file_path"]
+            version_filename = tool_input["version_filename"]
+            
+            # Restore the version
+            success = doc_editor.restore_version(file_path, version_filename)
+            
+            if success:
+                # Read the restored content to show in editor
+                content = doc_editor.open_file(file_path)
+                return {
+                    "result": format_tool_result("restore_file_version", f"Successfully restored {version_filename}\nCurrent version was backed up with tag 'before_restore'"),
+                    "editor_action": "update",
+                    "editor_content": content
+                }
+            else:
+                return {"error": format_tool_result("restore_file_version", f"Failed to restore version: {version_filename}", is_error=True)}
         
         elif tool_name == "get_editor_content":
             if editor_content is not None:
