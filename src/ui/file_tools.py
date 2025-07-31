@@ -408,6 +408,9 @@ def execute_file_tool(tool_name: str, tool_input: Dict[str, Any], doc_editor, ed
             new_content = tool_input["content"]
             mode = tool_input["mode"]
             
+            # ADD THIS DEBUG LINE
+            print(f"DEBUG edit_text_in_editor: mode={mode}, new_content length={len(new_content)}, editor_content length={len(editor_content) if editor_content else 0}")
+            
             if mode == "append" and editor_content:
                 final_content = editor_content + "\n\n" + new_content
             else:

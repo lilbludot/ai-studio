@@ -375,6 +375,16 @@ Important: You can only edit files that are open in the editor. If you need to m
 ### 📝 Editor Operations
 - **edit_text_in_editor** - Apply your proposed changes to the editor (replace or append mode)
 
+#### 📝 edit_text_in_editor Usage Rules:
+- **APPEND mode**: Use when ADDING content to the end (e.g., 'add a joke', 'add this paragraph')
+  - Only send the NEW content, not the whole file!
+- **REPLACE mode**: Use when CHANGING the entire content (e.g., 'fix all typos', 'reorganize the whole file')
+  - Send the complete new version of the file
+
+Example - Adding a joke:
+✅ CORRECT: mode='append', content='Why did the chicken? To get to the other side!'
+❌ WRONG: mode='replace', content='[entire file content + new joke]
+
 ## Working Together
 
 When Kinga mentions a specific file, that's usually your cue to open it with open_and_display_file so you can work on it together. But if she asks you to analyze a codebase or review multiple files, use read_file to avoid disrupting her workspace.
@@ -416,6 +426,9 @@ Remember: You are here to help Kinga work better and faster — with focus on un
                 
                 # Execute the tool - NOW PASSING editor_content
                 tool_result = execute_file_tool(tool_name, tool_input, self.doc_editor, editor_content)
+                
+                # DEBUG: Print what the tool actually returned
+                print(f"DEBUG: Tool {tool_name} returned: {tool_result}")
                 
                 # Check if this is an editor update
                 if tool_result.get('editor_action') == 'update':
