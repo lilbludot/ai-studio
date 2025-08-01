@@ -14,7 +14,6 @@ then open http://localhost:7860 in your browser
 ## What It Does
 
 - Chat with Claude/GPT while editing documents
-- LLMs can read/write files in ~/iCloud Drive/ClaudeProjects/
 - Auto-saves versions in .versions folders
 - LLMs can read/write files in your iCloud Drive under `ClaudeProjects/` (or another configured directory)
 - Tracks costs and tokens
