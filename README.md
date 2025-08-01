@@ -30,7 +30,6 @@ then open http://localhost:7860 in your browser
 
 ## TODO
 
-- [ ] iCloud Drive integration 
 - [ ] Tagged versions for milestones
 - [ ] Keyboard shortcuts (Ctrl+S, etc)
 - [ ] Auto-save with debouncing
