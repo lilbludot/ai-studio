@@ -1,4 +1,4 @@
-# AI Studio
+# LLM Workspace
 
 An LLM workspace - chat + editor with file tools.
 
@@ -8,6 +8,7 @@ An LLM workspace - chat + editor with file tools.
 export CLAUDE_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 python main.py
+then open http://localhost:7860 in your browser
 ```
 
 ## What It Does
@@ -15,6 +16,7 @@ python main.py
 - Chat with Claude/GPT while editing documents
 - LLMs can read/write files in ~/iCloud Drive/ClaudeProjects/
 - Auto-saves versions in .versions folders
+- LLMs can read/write files in your iCloud Drive under `ClaudeProjects/` (or another configured directory)
 - Tracks costs and tokens
 
 ## File Tools the LLMs Can Use
